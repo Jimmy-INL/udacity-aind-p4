@@ -164,36 +164,50 @@ class SelectorCV(ModelSelector):
         best_score = float('-inf')
         best_n_states = None
 
-        split_method = KFold(min(len(self.lengths), 3))
+        max_splits = min(len(self.lengths), 3)
+        if max_splits > 1:
+            split_method = KFold(max_splits)
 
         for n_states in range(self.min_n_components, self.max_n_components+1):   
   
-            n_splits = 0
-            s_score = 0
+            score = float('-inf')
 
-            for cv_train_idx, cv_test_idx in split_method.split(self.sequences):
+            if max_splits < 2:
 
-                X_train, len_train = combine_sequences(cv_train_idx, self.sequences)
-                X_test, len_test   = combine_sequences(cv_test_idx, self.sequences)
-
-                hmm = GaussianHMM(n_components=n_states, \
-                                  covariance_type="diag", \
-                                  n_iter=1000, \
-                                  random_state=self.random_state, \
-                                  verbose=False)
                 try:
-                    model = hmm.fit(X_train, len_train)
-                    s_score += model.score(X_test, len_test)
-                    n_splits += 1             
+                    model = self.base_model(n_states)
+                    score += model.score(self.X, self.lengths)
                 except:             
                     continue 
+ 
+            else:     
+                n_splits = 0
+                s_score = 0
 
-            # average score from all splits
-            if n_splits > 0:
-                score = s_score / n_splits
-                if score > best_score:
-                    best_score = score
-                    best_n_states = n_states
+                for cv_train_idx, cv_test_idx in split_method.split(self.sequences):
+
+                    X_train, len_train = combine_sequences(cv_train_idx, self.sequences)
+                    X_test, len_test   = combine_sequences(cv_test_idx, self.sequences)
+
+                    hmm = GaussianHMM(n_components=n_states, \
+                                      covariance_type="diag", \
+                                      n_iter=1000, \
+                                      random_state=self.random_state, \
+                                      verbose=False)
+                    try:
+                        model = hmm.fit(X_train, len_train)
+                        s_score += model.score(X_test, len_test)
+                        n_splits += 1             
+                    except:             
+                        continue 
+
+                # average score from all splits
+                if n_splits > 0:
+                    score = s_score / n_splits
+
+            if score > best_score:
+                best_score = score
+                best_n_states = n_states
 
         model = None
         if best_n_states != None: 
