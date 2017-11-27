@@ -76,8 +76,35 @@ class SelectorBIC(ModelSelector):
         """
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-        # TODO implement model selection based on BIC scores
-        raise NotImplementedError
+        best_score = float('inf')
+        best_model = None
+
+        n_features = len(self.sequences[0])
+        logN = np.log(len(self.X))
+
+        for n_states in range(self.min_n_components, self.max_n_components+1):   
+  
+            score = float('inf') 
+            p = n_states*n_states + (2*n_states*n_features - 1) # number of parameters
+ 
+            hmm = GaussianHMM(n_components=n_states, \
+                              covariance_type="diag", \
+                              n_iter=1000, \
+                              random_state=self.random_state, \
+                              verbose=False)
+            try:
+                model = hmm.fit(self.X, self.lengths)
+                score = -2 * model.score(self.X, self.lengths) + p * logN
+            except:             
+                #print("Fail", self.this_word, n_states) 
+                continue 
+
+            #print("Pass", self.this_word, n_states, score) 
+            if score < best_score:
+                best_score = score
+                best_model = model
+
+        return best_model
 
 
 class SelectorDIC(ModelSelector):
@@ -93,8 +120,37 @@ class SelectorDIC(ModelSelector):
     def select(self):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-        # TODO implement model selection based on DIC scores
-        raise NotImplementedError
+        best_score = float('-inf')
+        best_model = None
+
+        for n_states in range(self.min_n_components, self.max_n_components+1):   
+  
+            score = float('inf') 
+ 
+            hmm = GaussianHMM(n_components=n_states, \
+                              covariance_type="diag", \
+                              n_iter=1000, \
+                              random_state=self.random_state, \
+                              verbose=False)
+            try:
+                model = hmm.fit(self.X, self.lengths)
+                likelyhood_this = model.score(self.X, self.lengths)
+                likelyhood_others = []
+                for w,v in self.hwords.items():
+                    if w != self.this_word:
+                        X, lengths = v
+                        likelyhood_others.append(model.score(X,lengths))
+                score = likelyhood_this - sum(likelyhood_others)/(len(self.hwords)-1)
+            except:             
+                #print("Fail", self.this_word, n_states) 
+                continue 
+
+            #print("Pass", self.this_word, n_states, score) 
+            if score > best_score:
+                best_score = score
+                best_model = model
+
+        return best_model
 
 
 class SelectorCV(ModelSelector):
@@ -105,5 +161,42 @@ class SelectorCV(ModelSelector):
     def select(self):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-        # TODO implement model selection using CV
-        raise NotImplementedError
+        best_score = float('-inf')
+        best_n_states = None
+
+        split_method = KFold(min(len(self.lengths), 3))
+
+        for n_states in range(self.min_n_components, self.max_n_components+1):   
+  
+            n_splits = 0
+            s_score = 0
+
+            for cv_train_idx, cv_test_idx in split_method.split(self.sequences):
+
+                X_train, len_train = combine_sequences(cv_train_idx, self.sequences)
+                X_test, len_test   = combine_sequences(cv_test_idx, self.sequences)
+
+                hmm = GaussianHMM(n_components=n_states, \
+                                  covariance_type="diag", \
+                                  n_iter=1000, \
+                                  random_state=self.random_state, \
+                                  verbose=False)
+                try:
+                    model = hmm.fit(X_train, len_train)
+                    s_score += model.score(X_test, len_test)
+                    n_splits += 1             
+                except:             
+                    continue 
+
+            # average score from all splits
+            if n_splits > 0:
+                score = s_score / n_splits
+                if score > best_score:
+                    best_score = score
+                    best_n_states = n_states
+
+        model = None
+        if best_n_states != None: 
+            model = self.base_model(best_n_states)
+
+        return model
